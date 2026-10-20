@@ -3,9 +3,12 @@
   lib,
   fetchurl,
   makeDesktopItem,
+  procps,
+  runtimeShell,
+  extraPkgs ? (_: [ ]),
 }:
 
-appimageTools.wrapType2 rec {
+let
   pname = "rambox";
   version = "3.1.1";
 
@@ -17,22 +20,44 @@ appimageTools.wrapType2 rec {
   desktopItem = makeDesktopItem {
     desktopName = "Rambox";
     name = "rambox";
-    exec = "rambox";
+    exec = "rambox %u";
     icon = "rambox";
     categories = [ "Network" ];
+    mimeTypes = [ "x-scheme-handler/rambox" ];
   };
 
   appimageContents = appimageTools.extract {
     inherit pname version src;
   };
+in
+appimageTools.wrapType2 {
+  inherit
+    pname
+    version
+    src
+    desktopItem
+    appimageContents
+    ;
 
   extraInstallCommands = ''
     mkdir -p $out/share/applications $out/share/icons/hicolor/256x256/apps
     install -Dm644 ${appimageContents}/usr/share/icons/hicolor/256x256/apps/rambox*.png $out/share/icons/hicolor/256x256/apps/rambox.png
     install -Dm644 ${desktopItem}/share/applications/* $out/share/applications
+
+    # `$out/bin/rambox` is a symlink to the sandbox wrapper. Replace it with a
+    # shim that exports the host path as `$APPIMAGE` and execs the real wrapper:
+    # Rambox reads `$APPIMAGE` to build its deep-link handler, and the sandbox
+    # hides the wrapper's own path.
+    mv $out/bin/rambox $out/bin/.rambox-sandbox
+    cat > $out/bin/rambox <<EOF
+    #!${runtimeShell}
+    export APPIMAGE="$out/bin/rambox"
+    exec "$out/bin/.rambox-sandbox" "\$@"
+    EOF
+    chmod +x $out/bin/rambox
   '';
 
-  extraPkgs = pkgs: [ pkgs.procps ];
+  extraPkgs = pkgs: [ procps ] ++ extraPkgs pkgs;
 
   meta = {
     description = "Workspace Simplifier - a cross-platform application organizing web services into Workspaces similar to browser profiles";
